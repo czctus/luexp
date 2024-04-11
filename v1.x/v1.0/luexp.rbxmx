@@ -1,0 +1,428 @@
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
+	<Meta name="ExplicitAutoJoints">true</Meta>
+	<External>null</External>
+	<External>nil</External>
+	<Item class="ModuleScript" referent="RBX6B28F3D9DE9C4440BF471317DB8CA97B">
+		<Properties>
+			<BinaryString name="AttributesSerialize"></BinaryString>
+			<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+			<bool name="DefinesCapabilities">false</bool>
+			<Content name="LinkedSource"><null></null></Content>
+			<string name="Name">luexp</string>
+			<string name="ScriptGuid">{DC1BBC90-97BD-4868-8C3C-568B4560D3E6}</string>
+			<ProtectedString name="Source"><![CDATA[local HttpService = game:GetService('HttpService')
+
+local ver
+local clientver = "1.0"
+
+local s, r = pcall(function()
+	ver = HttpService:GetAsync("https://api.perox.dev/s/ver")
+end)
+
+if not s then
+	print(r)
+	ver = `luexp-client {clientver}; luexp-server luexp/?; (express@?; Node ?; ?)`
+else
+	ver = `luexp-client {clientver}; ` .. ver
+	if tostring(string.sub(ver, 38, 40)) ~= clientver then
+		warn("Miss-Matched Version!\nusing: luexp@" .. string.sub(ver, 37, 40))
+	end 
+end
+
+local ProxyEndpoint = "https://api.perox.dev/proxy"
+local init = "https://api.perox.dev/s/"
+local DefaultHeaders = {
+	["X-Powered-By"] = "luexp/1.0",
+	["C-User-Agent"] = "luexp/1.0"
+}
+
+return function(deb)
+	local module = {}
+
+	local methods = {}
+
+	local auth 
+	local url 
+
+	local function closeServer(index)
+		index = index or 1
+		if url and auth and index ~= 6 then
+			local delres = HttpService:RequestAsync({["Url"]=url, ["Method"]="DELETE", ["Headers"]={["Authorization"]=auth}})
+
+			url, auth = nil, nil
+
+			if not delres.Success then
+				warn("Failed to delete endpoint!")
+				closeServer(index + 1)
+			end
+		elseif index == 6 then
+			error("Failed to close server after 5 attempts.")
+		end
+	end
+
+	if deb then
+		warn("debug mode is active\ni do not recommend enabling this.")
+		ProxyEndpoint = ProxyEndpoint:gsub("https://api.perox.dev", "http://localhost:3001")
+		init = init:gsub("https://api.perox.dev", "http://localhost:3001")
+	end
+	
+	function module.listen(endpoint:string, callback)
+		local req = {
+			["Url"]=ProxyEndpoint.."?url="..init..endpoint.."&method=PUT",
+			["Method"]="POST",
+			["Headers"] = DefaultHeaders
+		}
+		local res = HttpService:RequestAsync(req)
+		if not res.Success then
+			if res.StatusCode == 409 then
+				error("Endpoint is already used by another server.")
+			else
+				error("Failed to start server, " .. res.StatusCode .. "\n" .. res.StatusMessage)
+				return
+			end
+		else
+			url = HttpService:JSONDecode(res.Body).url
+			auth = HttpService:JSONDecode(res.Body).auth
+			if deb then
+				url = url:gsub("https://api.perox.dev", "http://localhost:3001")
+			end
+			if callback then
+				callback(url, auth)
+			end
+		end
+		game:BindToClose(closeServer) --cleanup for memory leaks
+		while (url and auth) do
+			task.wait(0.25)
+			local s,r = pcall(function()
+				local header = {["Authorization"]=auth}
+				local poll = HttpService:JSONDecode(HttpService:RequestAsync({["Url"]=url .. "/i-n-t/poll", ["Method"]="GET", ["Headers"]=header}).Body)
+				for i,v in pairs(poll) do
+					local headers = {["Authorization"]=auth, ["Content-Type"]="application/json", ["request-index"]=tostring(i)}
+
+					function v.res.status(statuscode:number, message:string)
+						HttpService:RequestAsync({["Url"]=url.."/i-n-t/req", ["Body"]=HttpService:JSONEncode({msg=message, status=statuscode}), ["Headers"]=headers, ["Method"]="POST"})
+					end
+					v.res.app = module
+
+					v.req.app = module
+					function v.req.get(header)
+						for i,v in pairs(v.req.headers) do
+							if string.lower(i) == header then
+								return v
+							end
+						end
+					end
+
+					for i, method in pairs(methods) do
+						local pattern = method.endpoint:gsub("%*", ".*")
+						pattern = "^" .. pattern:gsub("/", "%%/") .. "$"
+						local requestedUrl = string.gsub(string.split(v.req.originalUrl, "?")[1], "/s/xyz", "")
+						if string.match(requestedUrl, pattern) and (v.method == method.method or method.method == "ALL") then
+							method.callback(v.req, v.res)
+							return
+						end
+					end
+					HttpService:RequestAsync({["Url"]=url.."/i-n-t/req", ["Body"]=HttpService:JSONEncode({msg="Invalid Endpoint", status=404}), ["Headers"]=headers, ["Method"]="POST"})
+				end
+			end)
+			if not s then
+				print(r)
+			end
+		end
+	end
+
+	function module.get(endpoint:string, callback)
+		methods[os.time()*math.random(100, 10000000)] = {
+			method = "GET",
+			callback = callback,
+			endpoint = endpoint
+		}
+	end
+	function module.post(endpoint:string, callback)
+		methods[os.time()*math.random(100, 10000000)] = {
+			method = "POST",
+			callback = callback,
+			endpoint = endpoint
+		}
+	end
+	function module.put(endpoint:string, callback)
+		if endpoint == "/" then
+			error("Cannot PUT Root (used by internal)")
+		else
+			methods[os.time()*math.random(100, 10000000)] = {
+				method = "PUT",
+				callback = callback,
+				endpoint = endpoint
+			}
+		end
+	end
+	function module.delete(endpoint:string, callback)
+		if endpoint == "/" then
+			error("Cannot DELETE Root (used by internal)")
+		else
+			methods[os.time()*math.random(100, 10000000)] = {
+				method = "DELETE",
+				callback = callback,
+				endpoint = endpoint
+			}
+		end
+	end
+	function module.head(endpoint:string, callback)
+		methods[os.time()*math.random(100, 10000000)] = {
+			method = "HEAD",
+			callback = callback,
+			endpoint = endpoint
+		}
+	end
+	function module.options(endpoint:string, callback)
+		methods[os.time()*math.random(100, 10000000)] = {
+			method = "OPTIONS",
+			callback = callback,
+			endpoint = endpoint
+		}
+	end
+	function module.patch(endpoint:string, callback)
+		methods[os.time()*math.random(100, 10000000)] = {
+			method = "PATCH",
+			callback = callback,
+			endpoint = endpoint
+		}
+	end
+	function module.all(endpoint:string, callback)
+		if endpoint == "/" then
+			error("Cannot all Root (used by internal)")
+		else
+			methods[os.time()*math.random(100, 10000000)] = {
+				method = "ALL",
+				callback = callback,
+				endpoint = endpoint
+			}
+		end
+	end
+	function module.any(method, endpoint:string, callback)
+		method = string.upper(method)
+		if (method == "DELETE" or method == "PUT") and (endpoint == "/") then
+			error("Cannot Root (used by internal)")
+		else
+			methods[os.time()*math.random(100, 10000000)] = {
+				method = method,
+				callback = callback,
+				endpoint = endpoint
+			}
+		end
+	end
+	function module.close()
+		closeServer()
+	end
+	function module.on(event)
+		--[[
+		events:
+		error,
+		called,
+		closed,
+		opened,
+		listening
+		]]
+	end
+
+	module.ver = ver
+
+	return module
+end]]></ProtectedString>
+			<int64 name="SourceAssetId">-1</int64>
+			<BinaryString name="Tags"></BinaryString>
+		</Properties>
+		<Item class="Folder" referent="RBXA4A94BAB0EF14B77901E801DBA510A71">
+			<Properties>
+				<BinaryString name="AttributesSerialize"></BinaryString>
+				<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+				<bool name="DefinesCapabilities">false</bool>
+				<string name="Name">Tests</string>
+				<int64 name="SourceAssetId">-1</int64>
+				<BinaryString name="Tags"></BinaryString>
+			</Properties>
+			<Item class="Script" referent="RBX258CBEBB3C1E4D23917BEB7F12334318">
+				<Properties>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<bool name="Disabled">false</bool>
+					<Content name="LinkedSource"><null></null></Content>
+					<string name="Name">Script</string>
+					<token name="RunContext">0</token>
+					<string name="ScriptGuid">{B029CA1E-8DEB-4E67-B8FC-4C41A0B60A58}</string>
+					<ProtectedString name="Source"><![CDATA[local luexp = require(script.Parent.Parent)
+local app = luexp()
+
+app.get("/", function(req,res)
+	print(req.body)
+	res.status(200,"Example Output")
+end)
+
+app.post("/", function(req, res)
+	print('Got request to POST on "/"')
+	print(req.get("user-agent"))
+	res.status(200,`You gave ` .. game:GetService('HttpService'):JSONEncode(req.body))
+end)
+
+app.put("/a", function(req, res)
+	print('Called on /a')
+	res.status(200, "")
+end)
+
+app.get("/ip", function(req, res)
+	res.status(200, req.ip)
+end)
+app.get("/ip/json", function(req, res)
+	local ipInfo = game:GetService('HttpService'):GetAsync("http://ip-api.com/json/" .. req.ip)
+	res.status(200, ipInfo)
+end)
+
+app.get("/html", function(req, res)
+	res.status(200, [[
+	<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stylish Page</title>
+    <style>
+        /* CSS styles */
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+            color: #333; /* Text color */
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1 {
+            color: #ff6600; /* Heading color */
+        }
+
+        p {
+            font-size: 16px;
+            line-height: 1.5;
+        }
+
+        .important {
+            font-weight: bold;
+            color: #cc0000; /* Important text color */
+        }
+
+        .highlight {
+            background-color: #ffff00; /* Highlighted background color */
+            padding: 5px;
+        }
+
+        .styled-link {
+            color: #0066cc; /* Link color */
+            text-decoration: none;
+            border-bottom: 1px dashed #0066cc; /* Link underline */
+        }
+
+        .styled-link:hover {
+            color: #004080; /* Link hover color */
+        }
+    </style>
+</head>
+<body>
+
+<h1>Welcome to My Stylish Page!</h1>
+
+<p>This is a <span class="important">paragraph</span> with some <span class="highlight">highlighted</span> text.</p>
+
+<p>This is another paragraph with a <a href="#" class="styled-link">styled link</a>.</p>
+
+<p>You can also use <em>italic</em> and <strong>bold</strong> text.</p>
+
+</body>
+</html>
+
+	]])
+end)
+
+app.all("/all", function(req, res)
+	res.status(200, `You called this endpoint by {req.method}\nAlso with the table values of {game:GetService('HttpService'):JSONEncode(req.query)}`)
+end)
+
+app.all("/wildcard/*", function(req, res)
+	res.status(200, "You called a wild card")
+end)
+
+app.post("/new", function(req, res)
+	local instance = req.get('object')
+	local properties = req.body
+	if properties and instance then
+		local obj = Instance.new(instance)
+		obj.Parent = game.Workspace
+		for i,v:string in pairs(properties) do
+			if v == "false" then
+				v = false
+			end
+			if v == "true" then
+				v = true
+			end
+			if typeof(v) == "string" and string.sub(v, 1, 4) == "v3: " then
+				v = v:gsub("v3: ", "")
+				local x,y,z = nil, nil, nil
+				for ind,val in pairs(v:split(", ")) do
+					if ind == 1 then
+						x = val
+					elseif ind == 2 then
+						y = val
+					elseif ind == 3 then
+						z = val
+					end
+				end
+				v = Vector3.new(x,y,z)
+			end
+			if typeof(v) == "string" and string.sub(v, 1, 4) == "Enum" then
+				local enum = Enum
+				for ind,val in pairs(v:split(".")) do
+					if val ~= "Enum" then
+						if enum[val] then
+							enum = enum[val]
+						else
+							return res.status(400, "invalid enum type")
+						end
+					end
+				end
+				v = enum
+			end
+			obj[i] = v
+		end
+		return res.status(200, `Created {instance}`)
+	else
+		return res.status(400)
+	end
+end)
+
+app.get("/close", function(req, res)
+	res.status(200, "Closed")
+	app.close()
+end)
+
+app.listen("xyz", function(url, auth)
+	print("Listening on " .. url)
+	print("Auth Key: " .. auth)
+	print("Running on version " .. app.ver)
+end)
+]]></ProtectedString>
+					<int64 name="SourceAssetId">-1</int64>
+					<BinaryString name="Tags"></BinaryString>
+				</Properties>
+			</Item>
+		</Item>
+		<Item class="Folder" referent="RBX1FF369A350FF4140A4227919D1CEFF0A">
+			<Properties>
+				<BinaryString name="AttributesSerialize"></BinaryString>
+				<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+				<bool name="DefinesCapabilities">false</bool>
+				<string name="Name">Packages</string>
+				<int64 name="SourceAssetId">-1</int64>
+				<BinaryString name="Tags"></BinaryString>
+			</Properties>
+		</Item>
+	</Item>
+</roblox>
