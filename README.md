@@ -27,7 +27,7 @@ $ npm install express
 
 1. Get the most recent Installation [Here](https://github.com/czctus/luexp/releases)
 2. Move the server.js anywhere
-3. Run ``cd path.to.server & node server.js`` in a terminal
+3. Run ``cd path.to.server`` & ``node server.js`` in a terminal
 4. Double check the server is running on `http://localhost:3001` by going to `http://localhost:3001/s/ver`
 
 #### Install Client
