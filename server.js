@@ -11,7 +11,7 @@ const activeEndpoints = {}
 app.use(express.json())
 
 app.get("/s", (req, res) => {
-    if (req.get("Authorization") === "f963207d-b49d-44d5-91ab-b9962b02cc46") {
+    if (req.get("Authorization") === "x-x-x-x-x") { //Put auth key here if you want to access all active endpoints.
         // Clone activeEndpoints while omitting the requestQueue property
         const filteredEndpoints = Object.entries(activeEndpoints).reduce((acc, [key, value]) => {
             // Destructure value to separate requestQueue from the rest of the properties
