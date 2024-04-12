@@ -10,6 +10,7 @@
 ### Server Installation
 
 **You will require node.js for this**
+**Note: By default you can use api.perox.dev servers instead of hosting your own.**
 
 #### Install Dependencies
 
