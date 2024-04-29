@@ -24,6 +24,11 @@ $ npm install uuid
 $ npm install express
 ```
 
+`Axios`
+```bash
+$ npm install axios
+```
+
 #### Install Server
 
 1. Get the most recent Installation [Here](https://github.com/czctus/luexp/releases)
