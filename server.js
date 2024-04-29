@@ -1,5 +1,10 @@
+//Updated for v1.1
+//Note, this MIGHT fail. Please create a issue request and i will try to fix the issue!
+//Also note, i am not great at node.js. This is my first public, open-source project.
+
 const { exec } = require("child_process");
 const { v4: uuidv4 } = require('uuid')
+const axios = require("axios")
 const os = require("os");
 
 const express = require("express")
@@ -11,12 +16,9 @@ const activeEndpoints = {}
 app.use(express.json())
 
 app.get("/s", (req, res) => {
-    if (req.get("Authorization") === "x-x-x-x-x") { //Put auth key here if you want to access all active endpoints.
-        // Clone activeEndpoints while omitting the requestQueue property
+    if (req.get("Authorization") === "x-x-x-x-x") { //Set an Code here if you want to access endpoints used.
         const filteredEndpoints = Object.entries(activeEndpoints).reduce((acc, [key, value]) => {
-            // Destructure value to separate requestQueue from the rest of the properties
             const { requestQueue, ...rest } = value;
-            // Accumulate the result without the requestQueue
             acc[key] = rest;
             return acc;
         }, {});
@@ -40,20 +42,41 @@ app.get('/s/:endpoint/i-n-t/poll', (req, res) => {
     }
 })
 
-app.post('/s/:endpoint/i-n-t/req', (req, res) => {
+app.post('/s/:endpoint/i-n-t/req', async (req, res) => {
     const endpoint = req.params.endpoint;
     const name = parseInt(req.headers["request-index"]) - 1;
     const content = req.body;
 
+    async function isValidStatusCode(code) {
+        try {
+            const response = await axios.get('https://status.js.org/codes.json');
+            const validStatusCodes = response.data;
+            return validStatusCodes.hasOwnProperty(code);
+        } catch (error) {
+            console.error("Error fetching valid status codes:", error);
+            return false;
+        }
+    }
+
     if (activeEndpoints[endpoint]) {
         if (req.headers["authorization"] === activeEndpoints[endpoint].auth) {
             if (activeEndpoints[endpoint].requestQueue[name]) {
-                activeEndpoints[endpoint].requestQueue[name].res.status(parseInt(content.status)).send(content.msg);
-                activeEndpoints[endpoint].requestQueue.splice(name, 1); // This removes the item
-                activeEndpoints[endpoint].readableRequestQueue.splice(name, 1) // Removes readable as well so Module cant get it.
-                res.sendStatus(204);
+                const statusCode = parseInt(content.status);
+
+                // Check if the status code is valid
+                if (await isValidStatusCode(statusCode)) {
+                    activeEndpoints[endpoint].requestQueue[name].res.status(statusCode).send(content.msg);
+                    activeEndpoints[endpoint].requestQueue.splice(name, 1);
+                    activeEndpoints[endpoint].readableRequestQueue.splice(name, 1);
+                    res.sendStatus(204);
+                } else {
+                    // If the status code is invalid, send a 400 error to the requestor
+                    res.status(400).send("Invalid status code");
+                    activeEndpoints[endpoint].requestQueue[name].res.status(500).send("Server Attempted to send a invalid HTTP Code");
+                    activeEndpoints[endpoint].requestQueue.splice(name, 1);
+                    activeEndpoints[endpoint].readableRequestQueue.splice(name, 1);
+                }
             } else {
-                // If the request at 'name' index does not exist, send an error response
                 res.status(400).send("Request at index does not exist.");
             }
         } else {
@@ -68,7 +91,7 @@ app.get('/s/ver', async (req, res) => {
     exec("node -v", (error, stdout, stderr) => {
         if (error) {
             console.error(`exec error: ${error}`);
-            res.status(200).send(`luexp-server luexp/1.0; (express@?; Node ?; ?)`)
+            res.status(200).send(`luexp-server luexp/1.1; (express@?; Node ?; ?)`)
             return;
         }
         const packageVersion = require('express/package.json').version;
@@ -76,15 +99,24 @@ app.get('/s/ver', async (req, res) => {
         if (server === undefined) {
             server = "undefined (likely api.perox.dev?) "
         }
-        res.status(200).send(`luexp-server luexp/1.0; (express@${packageVersion}; Node ${stdout}; ${os.platform()}; ${os.arch()}; ${os.release()}; Server ${server})`)
+        res.status(200).send(`luexp-server luexp/1.1; (express@${packageVersion}; Node ${stdout}; ${os.platform()}; ${os.arch()}; ${os.release()}; Server ${server})`)
     })
 })
 
-app.all('/s/:endpoint/*', (req, res) => {
-    const endpoint = req.params.endpoint;
-    const remainingPath = "/" + req.params[0]; // Access the captured wildcard (*) using req.params[0]
+app.use('/s/:endpoint/*', express.raw({ type: '*/*' }));
 
-    // Now you can work with both endpoint and remainingPath as needed
+app.all('/s/:endpoint/*', (req, res) => {
+    let bodyString;
+
+    if (req.is('json')) {
+        bodyString = JSON.stringify(req.body);
+    } else {
+        bodyString = req.body.toString();
+    }
+
+    const endpoint = req.params.endpoint;
+    const remainingPath = "/" + req.params[0];
+
     if (activeEndpoints[endpoint]) {
         activeEndpoints[endpoint].requestQueue.push({ req, res, endpoint, remainingPath });
         const nonredIndex = activeEndpoints[endpoint].requestQueue.length;
@@ -92,7 +124,7 @@ app.all('/s/:endpoint/*', (req, res) => {
             req: {
                 baseUrl: req.baseUrl,
                 headers: req.headers,
-                body: req.body,
+                body: bodyString,
                 cookies: req.cookies,
                 hostname: req.hostname,
                 ip: req.get("X-Forwarded-For"),
@@ -130,7 +162,12 @@ app.put('/s/:endpoint', (req, res) => {
         readableRequestQueue: [],
         auth: uuidv4()
     }
-    res.status(200).json({ url: `https://api.perox.dev/s/${req.params.endpoint}`, auth: activeEndpoints[req.params.endpoint].auth })
+    let url = `${req.protocol}://${req.hostname}`
+    if (req.hostname === "localhost") {
+        url = `${url}:${PORT}`
+    }
+    url = `${url}/s/${req.params.endpoint}`
+    res.status(200).json({ url: url, auth: activeEndpoints[req.params.endpoint].auth })
 })
 
 app.delete('/s/:endpoint', (req, res) => {
@@ -146,7 +183,7 @@ app.delete('/s/:endpoint', (req, res) => {
     } else {
         res.status(404).send("Invalid endpoint");
     }
-});        
+});
 
 app.listen(PORT, () => {
     console.log(`Server started on http://localhost:${PORT}/`)
