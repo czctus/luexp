@@ -49,4 +49,4 @@ Join us on [Discord](https://discord.gg/tq9vQfH9Au) to get help, share your idea
 
 ### License
 
-This project is licensed under the Creative Commons CC0 1.0 Universal License. Feel free to use and modify it for your own projects.
+This project is licensed under the MIT License. Feel free to use and modify it for your own projects.
